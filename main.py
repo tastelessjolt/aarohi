@@ -1,9 +1,9 @@
 from src.Aarohi import Aarohi
 from src import utils
 
-# utils.convertOggToWav("./media")
+utils.convertOggToWav("./media")
 
-aarohi = Aarohi()
-aarohi.setTrainingData("./media/")
-aarohi.train()
-aarohi.inventSong()
+# aarohi = Aarohi()
+# aarohi.setTrainingData("./media/")
+# aarohi.train()
+# aarohi.inventSong()
