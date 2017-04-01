@@ -19,7 +19,7 @@ def f16b(bin_array):
 		return int(stri,2)
 
 
-CELLS_IN_LSTM = 100
+CELLS_IN_LSTM = 20
 CASCADED_CELLS = 4
 BATCH_SIZE = 10000
 MEL_BANDS = 1
@@ -30,14 +30,16 @@ MAX_SEQ_LENGTH = SAMPLING_RATE * 360
 N_CLASSES = 16
 OUTPUT_SEC = 0.5
 OUTPUT_SEQ_LENGTH = SAMPLING_RATE * OUTPUT_SEC
-EPOCH = 5000
+EPOCH = 3
 
 class Aarohi():
 	"""docstring for Aarohi"""
 	def __init__(self):
 
-		cell = tf.contrib.rnn.LSTMCell(CELLS_IN_LSTM, state_is_tuple=True)
-		network = tf.contrib.rnn.MultiRNNCell([cell] * CASCADED_CELLS)
+		tf.logging.set_verbosity(tf.logging.INFO)
+		network = tf.contrib.rnn.LSTMCell(CELLS_IN_LSTM, state_is_tuple=True)
+		# cell = tf.contrib.rnn.LSTMCell(CELLS_IN_LSTM, state_is_tuple=True)
+		# network = tf.contrib.rnn.MultiRNNCell([cell] * CASCADED_CELLS)
 		
 		data  = tf.placeholder(tf.float32, [None, FEATURES_PER_BAND, 1])
 		target = tf.placeholder(tf.float32, [None, N_CLASSES])
@@ -47,14 +49,15 @@ class Aarohi():
 		output = tf.transpose(output, [1, 0, 2])
 		last = tf.gather(output, int(output.get_shape()[0]) - 1)
 
-		weight = tf.Variable(tf.truncated_normal([CELLS_IN_LSTM, int(target.get_shape()[1])]))
+		self.weight = tf.Variable(tf.truncated_normal([CELLS_IN_LSTM, int(target.get_shape()[1])]))
 		bias = tf.Variable(tf.constant(0.1, shape=[target.get_shape()[1]]))
 
-		prediction = tf.nn.softmax(tf.matmul(last, weight) + bias)
+		prediction = tf.nn.softmax(tf.matmul(last, self.weight) + bias)
 		cross_entropy = -tf.reduce_sum(target * tf.log(tf.clip_by_value(prediction,1e-10,1.0)))
 
-		optimiser = tf.train.AdamOptimizer()
-		minimize = optimiser.minimize(cross_entropy)
+		optimiser = tf.train.AdagradOptimizer(0.1)
+		# tf.train.LoggingTensorHook({"output" : output}, every_n_iter = 1)
+		self.minimize = optimiser.minimize(cross_entropy)
 
 		self.data_ph = data
 		self.target_ph = target
@@ -81,12 +84,13 @@ class Aarohi():
 		
 		for song in train_data:
 			print("Constructing song")
-			for i in range(0,int((song.shape[0]-FEATURES_PER_BAND-2)/10000)):
+			for i in range(0,int((song.shape[0]-FEATURES_PER_BAND-2)/1000000)):
 				print("Constructing sample = " + str(i))
-				training_x.append(song[ i:i+FEATURES_PER_BAND ])
+				training_x.append(song[ i:i+FEATURES_PER_BAND ]) 
 				training_y.append(bf16(song[i+FEATURES_PER_BAND+1]) )
 
 		print("Construction done")
+		# print(training_x, training_y)
 		self.train_x = training_x
 		self.train_y = training_y
 
@@ -94,18 +98,20 @@ class Aarohi():
 
 		print("Training commences")
 
-		init_op = tf.initialize_all_variables()
+		init_op = tf.global_variables_initializer()
 		sess = tf.Session()
 		sess.run(init_op)
 
 		no_of_batches = int(len(self.train_x)/BATCH_SIZE)
 		for i in range(EPOCH):
 		    ptr = 0
-		    for j in range(no_of_batches):
-		        inp, out = self.train_x[ptr:ptr+BATCH_SIZE], self.train_y[ptr:ptr+BATCH_SIZE]
+		    for j in range(1):
+		        inp, out = np.expand_dims(np.array(self.train_x[ptr:ptr+BATCH_SIZE]), axis=2), np.array(self.train_y[ptr:ptr+BATCH_SIZE])
 		        ptr += BATCH_SIZE
-		        sess.run(minimize,{self.data_ph: inp, self.target_ph: out})
-		    print ("Epoch - ", str(i))
+		        sess.run(self.minimize, {self.data_ph: inp, self.target_ph: out})
+		        print(self.weight)
+		        print("?")
+		    # print ("Epoch - ", str(i))
 
 		self.sess = sess
 
@@ -125,10 +131,11 @@ class Aarohi():
 		for x in range(0,song_length * SAMPLING_RATE):
 			print("iteration",x)
 			next_pt = self.sess.run(self.prediction, {self.data_ph: fram})
-			next_pt = [ int(x > 0.5) for x in next_pt ]
+			print(next_pt)
+			next_pt = [ int(x > 0.5) for x in next_pt[0] ]
 			fram_int = f16b(next_pt)
 			song.append(fram_int)
-			fram = np.append(fram, np.array([[[fram_int]]]), axis=1)
+			fram = np.append(np.array([fram[0][1:]]), np.array([[[fram_int]]]), axis=1)
 
 		print("Generating the wav file")
 		wv.write("gen.wav", SAMPLING_RATE, song)
