@@ -5,5 +5,7 @@ from src.Aarohi import Aarohi
 
 aarohi = Aarohi()
 aarohi.setTrainingData("./media/")
-aarohi.train()
-aarohi.inventSong()
+# aarohi.load_model("model1")
+# aarohi.train()
+aarohi.save_model("model1.h5")
+# aarohi.inventSong()

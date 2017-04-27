@@ -1,8 +1,14 @@
-import tensorflow as tf
+from keras.models import Sequential
+from keras.layers import Dense, LSTM
+
+from bitstring import BitArray as bt
+
 import numpy as np
-import scipy.io.wavfile as wv
+import pandas as pd
+import mido
 import os
 
+np.random.seed(100)
 
 def bf16(num):
 	inum = bin(np.uint16(num))
@@ -18,114 +24,72 @@ def f16b(bin_array):
 	else:
 		return int(stri,2)
 
-
-CELLS_IN_LSTM = 2
-CASCADED_CELLS = 4
 BATCH_SIZE = 10
-MEL_BANDS = 1
-SAMPLING_RATE = 44100
-INPUT_SEC = 0.5
-FEATURES_PER_BAND = int(SAMPLING_RATE * INPUT_SEC)
-MAX_SEQ_LENGTH = SAMPLING_RATE * 360
+
+INPUT_SIZE = 15
+MESSAGE_SIZE = 24
+
 N_CLASSES = 16
-OUTPUT_SEC = 0.5
-OUTPUT_SEQ_LENGTH = SAMPLING_RATE * OUTPUT_SEC
 EPOCH = 8
 
 class Aarohi():
 	"""docstring for Aarohi"""
 	def __init__(self):
 
-		tf.logging.set_verbosity(tf.logging.INFO)
-		network = tf.contrib.rnn.LSTMCell(CELLS_IN_LSTM, state_is_tuple=True)
-		# cell = tf.contrib.rnn.LSTMCell(CELLS_IN_LSTM, state_is_tuple=True)
-		# network = tf.contrib.rnn.MultiRNNCell([cell] * CASCADED_CELLS)
-		
-		data  = tf.placeholder(tf.float32, [None, FEATURES_PER_BAND, 1])
-		target = tf.placeholder(tf.float32, [None, N_CLASSES])
+		self.model = Sequential()
 
-		output, state = tf.nn.dynamic_rnn(network, data, dtype = tf.float32)
-		
-		output = tf.transpose(output, [1, 0, 2])
-		last = tf.gather(output, int(output.get_shape()[0]) - 1)
+		self.model.add(LSTM(MESSAGE_SIZE*2, input_shape=(INPUT_SIZE, MESSAGE_SIZE)))
+		self.model.add(Dense(MESSAGE_SIZE, activation='relu'))
 
-		weight = tf.Variable(tf.truncated_normal([CELLS_IN_LSTM, int(target.get_shape()[1])]))
-		bias = tf.Variable(tf.constant(0.1, shape=[target.get_shape()[1]]))
+		self.model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+		self.model.summary()
 
-		prediction = tf.nn.softmax(tf.matmul(last, weight) + bias)
-		cross_entropy = -tf.reduce_sum(target * tf.log(tf.clip_by_value(prediction,1e-10,1.0)))
+	def load_model(self, filename):
 
-		optimiser = tf.train.AdagradOptimizer(0.1)
-		# tf.train.LoggingTensorHook({"output" : output}, every_n_iter = 1)
-		self.minimize = optimiser.minimize(cross_entropy)
+		self.model = keras.models.load_model(filename)
 
-		self.data_ph = data
-		self.target_ph = target
-		self.prediction = prediction
-		self.loss = cross_entropy
-
-		# mistakes = tf.not_equal(tf.argmax(target, 1), tf.argmax(prediction, 1))
-		# error = tf.reduce_mean(tf.cast(mistakes, tf.float32))
 
 	def setTrainingData(self, filespath):
 
 		train_data = []
+
 		for path, dirs, files in os.walk(filespath):
-			for file in [files[0]]:
-				print(file)
-				if ( file[len(file)-3:] == "wav" ):
-					(rate, sig) = wv.read(filespath + file)
-					print(rate)
-				
-				train_data.append(sig.T[0])
+			for file in files[:5]:
+				if file[-4:] != ".mid":
+					continue
+				dat_array = []
+				dat = mido.MidiFile(filespath + file)
+				for i, track in enumerate(dat.tracks):
+					msgs = [ msg for msg in track[:10] if not msg.is_meta ]
+					if msgs:
+						msgs.sort(key=lambda message: message.time)
+						msgs = [ [int(l) for l in list(bt(hex=msg.hex()))] for msg in msgs]
+						msgs = [ msg+[0]*(MESSAGE_SIZE - len(msg)) for msg in msgs]
+						train_data.extend( msgs)
+						# print([int(l) for l in list(bt(hex=msgs[0].hex()))])
 
-		self.train_data_raw = train_data
+		x_train = []
+		y_train = []
 
-		training_x = []
-		training_y = []
+		for i in range(0,len(train_data)-INPUT_SIZE-1):
+			x_train.append(train_data[i:i+INPUT_SIZE])
+			y_train.append(train_data[i+INPUT_SIZE+1])
 		
-		for song in train_data:
-			print("Constructing song")
-			for i in range(0,int((song.shape[0]-FEATURES_PER_BAND-2)/100000)):
-				print("Constructing sample = " + str(i))
-				training_x.append(song[ i:i+FEATURES_PER_BAND ]) 
-				training_y.append(bf16(song[i+FEATURES_PER_BAND+1]) )
-				i = i + 44100
-
-		print("Construction done")
-		# print(training_x, training_y)
-		self.train_x = training_x
-		self.train_y = training_y
+		self.x_train = np.array(x_train)
+		self.y_train = np.array(y_train)
+		# print(self.x_train)
+		# print(self.y_train)
 
 	def train(self):
 
-		print("Training commences")
+		self.model.fit(self.x_train, self.y_train, epochs=EPOCH, batch_size=BATCH_SIZE)
 
-		init_op = tf.global_variables_initializer()
-		sess = tf.Session()
-		sess.run(init_op)
+	def save_model(self, filename):
 
-		no_of_batches = int(len(self.train_x)/BATCH_SIZE)
-		for i in range(EPOCH):
-		    ptr = 0
-		    for j in range(no_of_batches):
-		        inp, out = np.expand_dims(np.array(self.train_x[ptr:ptr+BATCH_SIZE]), axis=2), np.array(self.train_y[ptr:ptr+BATCH_SIZE])
-		        ptr += BATCH_SIZE
-		        print('Loss : '  + str(sess.run(self.loss, {self.data_ph: inp, self.target_ph: out})))
-		        sess.run(self.minimize, {self.data_ph: inp, self.target_ph: out})
-		        # print('Loss : '  + str(sess.run(self.loss, {self.data_ph: inp, self.target_ph: out})))
-		        # print(self.loss.eval(session=sess, {self.data_ph: inp, self.target_ph: out}))
-		        # print()
-
-		        # print("?")
-		    # print ("Epoch - ", str(i))
-
-		self.sess = sess
+		self.model.save(filename)
 
 	def inventSong(self):
 
-		print("Song gen starts")
-		
 		song_length = 20
 		# seed = np.array([ 0 for i in range(0,FEATURES_PER_BAND) ], dtype=np.int16)
 		seed = np.random.rand(3 * FEATURES_PER_BAND) + 0.5

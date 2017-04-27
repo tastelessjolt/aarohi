@@ -1,4 +1,5 @@
 *.wav
+*.mid
 *.ogg
 /media
 *.pyc
