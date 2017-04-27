@@ -1,3 +1,4 @@
+import keras
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 
@@ -24,13 +25,13 @@ def f16b(bin_array):
 	else:
 		return int(stri,2)
 
-BATCH_SIZE = 10
+BATCH_SIZE = 100
 
 INPUT_SIZE = 15
 MESSAGE_SIZE = 24
 
 N_CLASSES = 16
-EPOCH = 8
+EPOCH = 4
 
 class Aarohi():
 	"""docstring for Aarohi"""
@@ -38,7 +39,8 @@ class Aarohi():
 
 		self.model = Sequential()
 
-		self.model.add(LSTM(MESSAGE_SIZE*2, input_shape=(INPUT_SIZE, MESSAGE_SIZE)))
+		self.model.add(Dense(MESSAGE_SIZE, input_shape=(INPUT_SIZE, MESSAGE_SIZE), activation='relu'))
+		self.model.add(LSTM(MESSAGE_SIZE))
 		self.model.add(Dense(MESSAGE_SIZE, activation='relu'))
 
 		self.model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
@@ -54,13 +56,16 @@ class Aarohi():
 		train_data = []
 
 		for path, dirs, files in os.walk(filespath):
-			for file in files[:5]:
+			for file in files:
 				if file[-4:] != ".mid":
 					continue
 				dat_array = []
-				dat = mido.MidiFile(filespath + file)
+				try:
+					dat = mido.MidiFile(filespath + file)
+				except Exception as e:
+					continue
 				for i, track in enumerate(dat.tracks):
-					msgs = [ msg for msg in track[:10] if not msg.is_meta ]
+					msgs = [ msg for msg in track if not msg.is_meta ]
 					if msgs:
 						msgs.sort(key=lambda message: message.time)
 						msgs = [ [int(l) for l in list(bt(hex=msg.hex()))] for msg in msgs]
@@ -68,17 +73,23 @@ class Aarohi():
 						train_data.extend( msgs)
 						# print([int(l) for l in list(bt(hex=msgs[0].hex()))])
 
-		x_train = []
-		y_train = []
 
+		x_train = np.zeros((len(train_data)-INPUT_SIZE-1, INPUT_SIZE, 24))
+		y_train = np.zeros((len(train_data)-INPUT_SIZE-1, 24))
+
+		print(len(train_data)-INPUT_SIZE-1)
 		for i in range(0,len(train_data)-INPUT_SIZE-1):
-			x_train.append(train_data[i:i+INPUT_SIZE])
-			y_train.append(train_data[i+INPUT_SIZE+1])
+			temp = np.array(train_data[i:i+INPUT_SIZE])
+			if(temp.size == INPUT_SIZE * 24):
+				x_train[i, :, :] = temp
+			temp = np.array(train_data[i+INPUT_SIZE+1])
+			if(temp.size == 24):
+				y_train[i, :] = temp
 		
-		self.x_train = np.array(x_train)
-		self.y_train = np.array(y_train)
-		# print(self.x_train)
-		# print(self.y_train)
+		self.x_train = x_train
+		self.y_train = y_train
+		print(self.x_train.shape)
+		print(self.y_train.shape)
 
 	def train(self):
 
@@ -90,25 +101,18 @@ class Aarohi():
 
 	def inventSong(self):
 
-		song_length = 20
-		# seed = np.array([ 0 for i in range(0,FEATURES_PER_BAND) ], dtype=np.int16)
-		seed = np.random.rand(3 * FEATURES_PER_BAND) + 0.5
-		seed[seed < 0] = 0
-		print("Song seed = ", seed)
-		song = []
+		song_length = 5000
+		seed = [bytearray(b'\x90$d'), bytearray(b'\x90B\r'), bytearray(b'\x90AC'), bytearray(b'\xb0@\x7f'), bytearray(b'\x80+@'), bytearray(b'\x90>\x13'), bytearray(b'\x80>@'), bytearray(b'\xb0@\x7f'), bytearray(b'\x909\n'), bytearray(b'\x90E5'), bytearray(b'\x90+\x1f'), bytearray(b'\x90OU'), bytearray(b'\x90F\x0f'), bytearray(b'\x80F@'), bytearray(b'\x80A@')]
 
-		fram = seed
-		fram = np.reshape(fram, (-1, FEATURES_PER_BAND, 1))
-		print(fram, fram.shape)
+		seed = [ [int(l) for l in list(bt(hex=msg.hex()))] for msg in seed]
+		seed = [ msg+[0]*(MESSAGE_SIZE - len(msg)) for msg in seed]
+		# seed = list(map())
+		seed = np.array(seed)
+		song = seed
+		for i in range(song_length):
+			prediction = self.model.predict(np.reshape(song[i:i+INPUT_SIZE], (-1, INPUT_SIZE, 24) ) )
+			song = np.concatenate((song, prediction), axis=0)
 
-		for x in range(0,song_length * SAMPLING_RATE):
-			print("iteration",x)
-			next_pt = self.sess.run(self.prediction, {self.data_ph: fram})
-			print(next_pt)
-			next_pt = [ int(x > 0.03) for x in next_pt[0] ]
-			fram_int = f16b(next_pt)
-			song.append(fram_int)
-			fram = np.append(np.array([fram[0][1:]]), np.array([[[fram_int]]]), axis=1)
+		return song
+		# song_bytes = [bt(msg).tobytes() for msg in song]
 
-		print("Generating the wav file")
-		wv.write("gen.wav", SAMPLING_RATE, song)
