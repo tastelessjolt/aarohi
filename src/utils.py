@@ -88,6 +88,8 @@ def noteMatrixToMidi(statematrix, name="example"):
 
 	# os.chdir('../media')
 
+	print(statematrix.shape)
+
 	default_header = (mido.MidiFile('media/ballade1.mid').tracks[0])[1:4]
 	# os.chdi
 	for message in default_header:
