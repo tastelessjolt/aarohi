@@ -20,10 +20,10 @@ upperBound = 102
 
 BATCH_SIZE = 1000
 
-INPUT_SIZE = 100
+INPUT_SIZE = 50
 MESSAGE_SIZE = upperBound - lowerBound
 
-EPOCH = 100
+EPOCH = 50
 
 class Aarohi():
 	"""docstring for Aarohi"""
@@ -44,13 +44,28 @@ class Aarohi():
 
 		self.model = keras.models.load_model(filename)
 
+	def data_generator(self):
+		k = 0
+		j = 0
+		x_train = np.zeros((BATCH_SIZE, INPUT_SIZE, MESSAGE_SIZE * 2))
+		y_train = np.zeros((BATCH_SIZE, MESSAGE_SIZE * 2))
+		for i in range(0,len(self.train_data)-INPUT_SIZE-1):
+			if i % BATCH_SIZE == BATCH_SIZE - 1:
+				k = i 
+				j += 1
+				print(i, len(self.train_data)-INPUT_SIZE-1)
+				print(j, int((len(self.train_data) - INPUT_SIZE - 1)/BATCH_SIZE))
+				yield (x_train, y_train)
+			x_train[i - k, :, :] = np.array(self.train_data[i:i + INPUT_SIZE])
+			y_train[i - k, :] = np.array(self.train_data[i + INPUT_SIZE + 1])
 
 	def setTrainingData(self, filespath):
 
 		train_data = []
 
 		for path, dirs, files in os.walk(filespath):
-			for file in files[:2]:
+			# for file in files[:1]:
+			for file in files:
 				if file[-4:] != ".mid":
 					continue
 				
@@ -64,16 +79,16 @@ class Aarohi():
 
 				train_data.extend(noteMatrix)
 
-		# x_train = np.zeros((len(train_data)-INPUT_SIZE-1, MESSAGE_SIZE * 2))
-		# y_train = np.zeros((MESSAGE_SIZE * 2))
+		self.x_train = np.zeros((len(train_data)-INPUT_SIZE-1, INPUT_SIZE, MESSAGE_SIZE * 2))
+		self.y_train = np.zeros((len(train_data)-INPUT_SIZE-1, MESSAGE_SIZE * 2))
 		
-		self.x_train = np.expand_dims(train_data[0:INPUT_SIZE], axis=0)
-		self.y_train = np.expand_dims(train_data[INPUT_SIZE + 1], axis=0)
+		# self.x_train = np.expand_dims(train_data[0:INPUT_SIZE], axis=0)
+		# self.y_train = np.expand_dims(train_data[INPUT_SIZE + 1], axis=0)
 
 		# print(len(train_data)-INPUT_SIZE-1)
-		for i in range(1,len(train_data)-INPUT_SIZE-1):
-			self.x_train = np.append(self.x_train, np.expand_dims(train_data[i:i + INPUT_SIZE], axis=0) )
-			self.y_train = np.append(self.y_train, np.expand_dims(train_data[i + INPUT_SIZE + 1], axis=0) )
+		for i in range(0,len(train_data)-INPUT_SIZE-1):
+			self.x_train[i, :, :] = train_data[i:i + INPUT_SIZE]
+			self.y_train[i, :] = train_data[i + INPUT_SIZE + 1]
 		
 		print(self.x_train.shape)
 		print(self.y_train.shape)
