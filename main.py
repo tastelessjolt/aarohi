@@ -1,15 +1,19 @@
 from src.Aarohi import Aarohi
+
 import numpy as np
-# from src import utils
+import sys
+import signal
 
-# utils.convertOggToWav("./media")
+aarohi = Aarohi() # our trainer and predictor ! :P 
+aarohi.setTrainingData("./media/") # takes the training data in .mid format from the folder path given
+aarohi.load_model("model9.h5") # this was our best model
+def signal_handler(signal, frame): # to capture Ctrl + C and save the model middle way of training
+	aarohi.save_model("model10.h5")
+	print('You pressed Ctrl+C!')
+	sys.exit(0)
 
-aarohi = Aarohi()
-aarohi.setTrainingData("./media/")
-# aarohi.load_model("model1.h5")
-# aarohi.load_model("model2.h5")
-# aarohi.load_model("model3.h5")
-aarohi.load_model("model5.h5")
-aarohi.train()
-aarohi.save_model("model5.h5")
-# y = aarohi.inventSong()
+signal.signal(signal.SIGINT, signal_handler)
+
+aarohi.train() # actual training
+aarohi.save_model("model10.h5") # And now after we trained save the model! 
+aarohi.inventSong('') # Finally get the song out of the model with some seed  
